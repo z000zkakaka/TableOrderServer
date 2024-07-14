@@ -48,24 +48,13 @@ void proc_recv() {
 		if (data.find("MENU_LIST_REQUEST")) {
 			stringstream datalist;
 			string tmp, msgCD, msg;
+			data = data.substr(data.find_first_of('{'));
 			datalist.clear();
 			datalist << data;
 			char delimiter = ',';
 			while (getline(datalist, tmp, delimiter)) {
 				cout << tmp << endl;
-				if (tmp.find("ACCOUNT_ID") != string::npos) {
-					account = tmp.substr(tmp.find(":") + 1);
-				}
-				else if (tmp.find("ACCOUNT_PASSWD") != string::npos) {
-					passwd = tmp.substr(tmp.find(':') + 1);
-				}
-				else if (tmp.find("STORE_NM") != string::npos) {
-					storeNm = tmp.substr(tmp.find(':') + 1);
-				}
-				else if (tmp.find("TABLE_ID") != string::npos) {
-					tableID = tmp.substr(tmp.find(':') + 1);
-					tableID.erase(tableID.end() - 1);
-				}
+				
 			}
 
 			state = 3;

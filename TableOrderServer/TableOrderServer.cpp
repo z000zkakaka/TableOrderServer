@@ -31,6 +31,20 @@ void showError(const char* msg)
 }
 
 void proc_recvs() {
+
+    ret = SQLAllocHandle(SQL_HANDLE_ENV, SQL_NULL_HANDLE, &henv);
+
+    ret = SQLSetEnvAttr(henv, SQL_ATTR_ODBC_VERSION, (void*)SQL_OV_ODBC3, 0);
+
+
+    ret = SQLAllocHandle(SQL_HANDLE_DBC, henv, &hdbc);
+
+    connectionString = (SQLWCHAR*)L"DRIVER={SQLServer};SERVER=serverIP;DATABASE=DataBaseName;UID=username;PWD=passwd";
+
+    ret = SQLDriverConnect(hdbc, NULL, connectionString, SQL_NTS, NULL, 0, NULL, SQL_DRIVER_COMPLETE);
+    //쿼리 실행을 위한 문장 핸들 생성
+    ret = SQLAllocHandle(SQL_HANDLE_STMT, hdbc, &hstmt);
+
     char buffer[1024] = { 0 };
     string data;
     while (!WSAGetLastError()) {
@@ -45,7 +59,7 @@ void proc_recvs() {
         datalist.clear();
         datalist << data;
         char delimiter = ',';
-        if (data.find("ACCOUNT_ID")) {
+        if (data.find("ACCOUNT_ID")) {          //로그인 정보 수신
             string tmp, account, passwd, storeNm, tableID;
             while (getline(datalist, tmp, delimiter)) {
                 cout << tmp << endl;
@@ -63,23 +77,70 @@ void proc_recvs() {
                     tableID.erase(tableID.end()-1);
                 }
             }
-            cout << account << "/" << passwd << "/" << storeNm << "/" << tableID << endl;
+            string sqlword = "UPDATE ACCOUNT_LIST SET STORE_NM='" + storeNm + "', TABLE_ID='" +  tableID  + "' WHERE ACCOUNT_ID = '" + account + "' and ACCOUNT_PASSWD = '" +passwd +"'";
+            wstring stemp;
+            stemp.assign(sqlword.begin(), sqlword.end());
+//            wchar_t wstr[2000];     // = new wchar_t[2000];
+//            MultiByteToWideChar(CP_UTF8, 0, sqlword.c_str(), sqlword.size(), wstr, 2000);
+            SQLWCHAR sql[] = stemp.c_str();
+            ret = SQLExecDirect(hstmt, sql, SQL_NTS);
+            if (ret == SQL_SUCCESS || ret == SQL_SUCCESS_WITH_INFO) {
+                stringstream reply;
+                string json;
+                reply << "GET / HTTP/1.1\r\n\r\n";
+                reply << "Accept : */*\r\n";
+                reply << "Content-type : application/json\r\n";
+                reply << "{\"MSG_CD\":0000" << ",\"MSG\":ACCOUNT_LOGIN SUCCESS}";
+                json = reply.str();
+                send(hClntSock, json.c_str(), json.length(), 0);
+            }
+            else {
+                //            cout << account << "/" << passwd << "/" << storeNm << "/" << tableID << endl;
+                stringstream reply;
+                string json;
+                reply << "GET / HTTP/1.1\r\n\r\n";
+                reply << "Accept : */*\r\n";
+                reply << "Content-type : application/json\r\n";
+                reply << "{\"MSG_CD\":0001" << ",\"MSG\":ACCOUNT_LOGIN FAIL}";
+                json = reply.str();
+                send(hClntSock, json.c_str(), json.length(), 0);
+            }
+        }
+        else if (data.find("STORE_NM")) {       //메뉴 리스트 정보 요청 수신
+            string tmp, storeNm;
             stringstream reply;
             string json;
-            reply << "{\"MSG_CD\":0000" << ",\"MSG\":ACCOUNT_LOGIN SUCCESS}";
-            json = reply.str();
-            send(hClntSock, json.c_str(), json.length(), 0);
-        }
-        else if (data.find("STORE_NM")) {
-            string tmp, storeNm;
             while (getline(datalist, tmp, delimiter)) {
                 cout << tmp << endl;
                 if (tmp.find("STORE_NM") != string::npos) {
                     storeNm = tmp.substr(tmp.find(':') + 1);
                 }
             }
-
-
+            reply << "GET / HTTP/1.1\r\n\r\n";
+            reply << "Accept : */*\r\n";
+            reply << "Content-type : application/json\r\n";
+            reply << "{\"MSG_CD\":1000" << ",\"MSG\":MENU_LIST_REQUEST SUCCESS,\"MENU_LIST\":{";
+            SQLWCHAR sql[] = L"SELECT MENU_NM, PRICE FROM MENU_LIST where STORE_NM = '%s'", storeNm;
+            ret = SQLExecDirect(hstmt, sql, SQL_NTS);
+            if (ret == SQL_SUCCESS || ret == SQL_SUCCESS_WITH_INFO) {
+                SQLWCHAR name[50];
+                SQLINTEGER price;
+                bool startpoint = true;
+                while (SQLFetch(hstmt) == SQL_SUCCESS) {
+                    if (startpoint) {
+                        startpoint = false;
+                    }
+                    else {
+                        reply << ",";
+                    }
+                    SQLGetData(hstmt, 1, SQL_C_WCHAR, name, 50, NULL);
+                    SQLGetData(hstmt, 2, SQL_C_LONG, &price, sizeof(price), NULL);
+                    reply << "{\"MENU_NM\":" << name << ",\"PRICE\":" << price << "}";
+                }
+            }
+            reply << "}}";
+            json = reply.str();
+            send(hClntSock, json.c_str(), json.length(), 0);
         }
         
         
@@ -88,21 +149,6 @@ void proc_recvs() {
 
 int main(int argc, char** argv)
 {
-    
-    ret = SQLAllocHandle(SQL_HANDLE_ENV, SQL_NULL_HANDLE, &henv);
-
-    ret = SQLSetEnvAttr(henv, SQL_ATTR_ODBC_VERSION, (void*)SQL_OV_ODBC3, 0);
-
-    
-    ret = SQLAllocHandle(SQL_HANDLE_DBC, henv, &hdbc);
-
-    connectionString = (SQLWCHAR*)L"DRIVER={SQLServer};SERVER=serverIP;DATABASE=DataBaseName;UID=username;PWD=passwd";
-
-    ret = SQLDriverConnect(hdbc, NULL, connectionString, SQL_NTS, NULL, 0, NULL, SQL_DRIVER_COMPLETE);
-    //쿼리 실행을 위한 문장 핸들 생성
-    ret = SQLAllocHandle(SQL_HANDLE_STMT, hdbc, &hstmt);
-    
-
     WSADATA         wsaData;
     SOCKADDR_IN     servAddr;
     SOCKADDR_IN     clntAddr;
